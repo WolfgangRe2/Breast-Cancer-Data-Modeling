@@ -1,0 +1,218 @@
+# Extract the selected data columns
+mutationData = data[mutations]
+generalData = data[general]
+geneexpData = data[geneexp]
+selectedData = data[selected]
+# Iterate over the selected columns
+for col in mutations:
+    # Find the indices where the column contains strings
+    stringIndices = mutationData[col].apply(lambda x: isinstance(x, str))
+    
+    # Replace strings with 1 while keeping '0' as 0
+    mutationData[col] = mutationData[col].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+
+for col in general:
+    stringIndices = generalData[col].apply(lambda x: isinstance(x, str))
+
+    # Replace strings with 1 while keeping '0' as 0
+    generalData[col] = generalData[col].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+
+    # Fill empty cells with 0
+    generalData[col] = generalData[col].fillna(0)
+
+for var in selected:
+
+    for col in mutations:
+        if var == col:
+            # Find the indices where the column contains strings
+            stringIndices = selectedData[var].apply(lambda x: isinstance(x, str))
+            
+            # Replace strings with 1 while keeping '0' as 0
+            selectedData[var] = selectedData[var].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+        else:
+            continue
+    for col in general:
+        if var == col:
+            stringIndices = selectedData[var].apply(lambda x: isinstance(x, str))
+
+            # Replace strings with 1 while keeping '0' as 0
+            selectedData[var] = selectedData[var].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+
+            # Fill empty cells with 0
+            selectedData[var] = selectedData[var].fillna(0)
+        else:
+            continue
+
+generalDataMatrix = generalData.to_numpy()
+mutationDataMatrix = mutationData.to_numpy()
+geneexpDataMatrix = geneexpData.to_numpy()
+selectedDataMatrix = selectedData.to_numpy()
+
+#Set desired Data to true
+generalAlone = False
+mutationsAlone = False
+geneexpAlone = False
+generalAndExp = False
+generalAndMut = False
+expAndMut = False
+allVar = True
+selectedTitle = False
+
+if generalAlone == True:
+    selectedColumns = general
+    selectedDataMatrix = generalDataMatrix
+    name = 'General'
+    
+elif mutationsAlone == True:
+    selectedColumns = mutations
+    selectedDataMatrix = mutationDataMatrix
+    name = 'Mutations'
+    
+elif geneexpAlone == True:
+    selectedColumns = geneexp
+    selectedDataMatrix = geneexpDataMatrix
+    name = 'Gene Expression'
+    
+elif generalAndExp == True:
+    selectedColumns = general + geneexp
+    selectedDataMatrix = np.concatenate((generalDataMatrix, geneexpDataMatrix), axis=1)
+    name = 'General and Gene Expression'
+    
+elif generalAndMut == True:
+    selectedColumns = general + mutations
+    selectedDataMatrix = np.concatenate((generalDataMatrix, mutationDataMatrix), axis=1)
+    name = 'General and Mutations'
+    
+elif expAndMut == True:
+    selectedColumns = geneexp + mutations
+    selectedDataMatrix = np.concatenate((geneexpDataMatrix, mutationDataMatrix), axis=1)
+    name = 'Gene Expression and Mutations'
+    
+elif allVar == True:
+    selectedColumns = general + mutations + geneexp
+    selectedDataMatrix = np.concatenate((generalDataMatrix, geneexpDataMatrix, mutationDataMatrix), axis=1)
+    name = 'General, Gene Expression, and Mutations'
+elif selectedTitle == True:
+    selectedColumns = selected
+    selectedDataMatrix = selectedDataMatrix
+    name = 'Selected'
+    
+dataMatrix = selectedDataMatrix
+
+
+X = dataMatrix
+y = data['overall_survival'].values
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.325, random_state=1)
+
+# Train a random forest classifier
+num_trees = 100
+model = RandomForestClassifier(n_estimators=num_trees, random_state=1, oob_score=True)
+model.fit(X_train, y_train)
+
+# Get feature importances
+importances = model.feature_importances_
+
+print("Feature Importances:")
+sorted_indices = sorted(range(len(importances)), key=lambda i: importances[i], reverse=True)
+for i in sorted_indices[:50]:
+    print(f"Feature {selectedColumns[i]}: {importances[i]:.4f}")
+
+# Evaluate the model
+accuracy = model.score(X_test, y_test)
+print(f"Accuracy: {accuracy*100:.2f}%")
+
+
+# Get predicted probabilities for the positive class
+y_prob = model.predict_proba(X_test)[:, 1]
+
+# Calculate false positive rate (fpr), true positive rate (tpr), and thresholds
+fpr, tpr, thresholds = roc_curve(y_test, y_prob)
+
+# Calculate AUC (Area Under the Curve)
+roc_auc = auc(fpr, tpr)
+
+# Plot ROC curve
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='blue', lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate (FPR)')
+plt.ylabel('True Positive Rate (TPR)')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend(loc='lower right')
+plt.show()
+
+
+def crossFold():
+    # Define the number of folds
+    num_folds_10 = 10
+    num_folds_15 = 15
+
+    # Perform 10-fold cross-validation
+    cv_scores_10 = cross_val_score(model, X, y, cv=num_folds_10, scoring='roc_auc')
+    mean_score_10 = np.mean(cv_scores_10)
+    std_score_10 = np.std(cv_scores_10)
+
+    # Perform 15-fold cross-validation
+    cv_scores_15 = cross_val_score(model, X, y, cv=num_folds_15, scoring='roc_auc')
+    mean_score_15 = np.mean(cv_scores_15)
+    std_score_15 = np.std(cv_scores_15)
+
+    # Print results
+    print(f'10-Fold Cross-Validation ROC AUC: {mean_score_10:.2f} +/- {std_score_10:.2f}')
+    print(f'15-Fold Cross-Validation ROC AUC: {mean_score_15:.2f} +/- {std_score_15:.2f}')
+    
+#crossFold()
+
+
+# Get predictions on the test set
+y_pred = model.predict(X_test)
+
+# Create confusion matrix
+conf_matrix = confusion_matrix(y_test, y_pred)
+
+# Print confusion matrix
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, cmap='Blues', fmt='g', cbar=False)
+plt.xlabel('Predicted Label')
+plt.ylabel('True Label')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Initialize a SHAP explainer object
+explainer = shap.TreeExplainer(model)
+
+# Get Shapley values for the entire dataset
+shap_values = explainer.shap_values(X_train)
+
+# Compute absolute Shapley values
+abs_shap_values = np.abs(shap_values)
+
+# Compute mean absolute Shapley values for each feature
+mean_abs_shap_values = np.mean(abs_shap_values, axis=0)
+
+new_mean = []
+for row in mean_abs_shap_values:
+    new_mean.append(row[0])
+# Get top ten features
+top_ten_indices = np.argsort(new_mean)[::-1][:10]
+print("Top ten feature indices based on mean absolute Shapley values:")
+print(top_ten_indices)
+
+top_ten_features = [selectedColumns[i] for i in top_ten_indices]
+print("Top ten features based on mean absolute Shapley values:")
+for indic in top_ten_indices:
+    print(selectedColumns[indic], ': ', new_mean[indic])
+
+feature_names = [str(column) for column in selectedColumns]
+# Visualize the Shapley values for the top ten features
+# Visualize the Shapley values for the top ten features as a bar plot
+shap.summary_plot(shap_values, X_train, feature_names=None, plot_type="bar")
+
