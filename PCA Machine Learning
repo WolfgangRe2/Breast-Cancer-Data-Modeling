@@ -1,0 +1,318 @@
+# Extract the selected data columns
+mutationData = data[mutations]
+generalData = data[general]
+geneexpData = data[geneexp]
+selectedData = data[selected]
+
+# Iterate over the selected columns
+for col in mutations:
+    # Find the indices where the column contains strings
+    stringIndices = mutationData[col].apply(lambda x: isinstance(x, str))
+    
+    # Replace strings with 1 while keeping '0' as 0
+    mutationData[col] = mutationData[col].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+
+
+
+#Filling NaN in General
+# Find the indices where the column contains strings
+for col in general:
+    stringIndices = generalData[col].apply(lambda x: isinstance(x, str))
+
+    # Replace strings with 1 while keeping '0' as 0
+    generalData[col] = generalData[col].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+
+    # Fill empty cells with 0
+    generalData[col] = generalData[col].fillna(0)
+    
+for var in selected:
+
+    for col in mutations:
+        if var == col:
+            # Find the indices where the column contains strings
+            stringIndices = selectedData[var].apply(lambda x: isinstance(x, str))
+            
+            # Replace strings with 1 while keeping '0' as 0
+            selectedData[var] = selectedData[var].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+        else:
+            continue
+    for col in general:
+        if var == col:
+            stringIndices = selectedData[var].apply(lambda x: isinstance(x, str))
+
+            # Replace strings with 1 while keeping '0' as 0
+            selectedData[var] = selectedData[var].apply(lambda x: int(x) if x == '0' else 1 if isinstance(x, str) else x)
+
+            # Fill empty cells with 0
+            selectedData[var] = selectedData[var].fillna(0)
+        else:
+            continue
+
+generalDataMatrix = generalData.to_numpy()
+mutationDataMatrix = mutationData.to_numpy()
+geneexpDataMatrix = geneexpData.to_numpy()
+selectedDataMatrix = selectedData.to_numpy()
+
+#Set desired Data to true
+generalAlone = False
+mutationsAlone = False
+geneexpAlone = False
+generalAndExp = False
+generalAndMut = False
+expAndMut = False
+allVar = True
+selectedTitle = False
+
+if generalAlone == True:
+    selectedColumns = general
+    selectedDataMatrix = generalDataMatrix
+    name = 'General'
+    
+elif mutationsAlone == True:
+    selectedColumns = mutations
+    selectedDataMatrix = mutationDataMatrix
+    name = 'Mutations'
+    
+elif geneexpAlone == True:
+    selectedColumns = geneexp
+    selectedDataMatrix = geneexpDataMatrix
+    name = 'Gene Expression'
+    
+elif generalAndExp == True:
+    selectedColumns = general + geneexp
+    selectedDataMatrix = np.concatenate((generalDataMatrix, geneexpDataMatrix), axis=1)
+    name = 'General and Gene Expression'
+    
+elif generalAndMut == True:
+    selectedColumns = general + mutations
+    selectedDataMatrix = np.concatenate((generalDataMatrix, mutationDataMatrix), axis=1)
+    name = 'General and Mutations'
+    
+elif expAndMut == True:
+    selectedColumns = geneexp + mutations
+    selectedDataMatrix = np.concatenate((geneexpDataMatrix, mutationDataMatrix), axis=1)
+    name = 'Gene Expression and Mutations'
+    
+elif allVar == True:
+    selectedColumns = general + mutations + geneexp
+    selectedDataMatrix = np.concatenate((generalDataMatrix, geneexpDataMatrix, mutationDataMatrix), axis=1)
+    name = 'General, Gene Expression, and Mutations'
+elif selectedTitle == True:
+    selectedColumns = selected
+    selectedDataMatrix = selectedDataMatrix
+    name = 'Selected'
+
+dataMatrix = selectedDataMatrix
+
+
+# Perform PCA
+pca = PCA()
+pca.fit(dataMatrix)
+
+score = pca.transform(dataMatrix)
+# Check the shape and type of the score variable
+pc1_scores = score[:, 0]  # Scores for the first principal component
+pc2_scores = score[:, 1]  # Scores for the second principal component
+
+
+color_column = data['overall_survival']
+
+# Plot the scores on a 2D graph with color coding based on 'overall_survival'
+plt.figure(figsize=(8, 6))
+plt.scatter(pc1_scores, pc2_scores, c=color_column, cmap='coolwarm')  # Add colorbar to show the meaning of colors
+plt.xlabel('Principal Component 1')
+plt.ylabel('Principal Component 2')
+plt.title('PCA: 2D Visualization of ' + name)
+plt.grid(True)
+plt.show()
+
+# Get the loading scores
+loading_scores = pca.components_
+
+# Get the eigenvectors (principal axes in feature space)
+eigenvectors = pca.explained_variance_
+
+#print("Loading Scores:")
+#print(loading_scores)
+#print("\nEigenvalues:")
+#print(eigenvectors)
+
+def list_top_principal_components(loading_scores, n_components=3):
+    """
+    List the top principal components based on their loading scores.
+    
+    Parameters:
+        loading_scores (array-like): The loading scores obtained from PCA.
+        n_components (int): The number of top principal components to list.
+    
+    Returns:
+        top_components (list): A list of tuples containing the index and loading score of the top principal components.
+    """
+    # Calculate the absolute sum of loading scores for each component
+    abs_sum_loading_scores = abs(loading_scores).sum(axis=1)
+    
+    # Sort the components based on their absolute sum of loading scores
+    sorted_indices = abs_sum_loading_scores.argsort()[::-1][:n_components]
+    
+    # Create a list of tuples containing the index and loading score of the top components
+    top_components = [(index, abs_sum_loading_scores[index]) for index in sorted_indices]
+    
+    return top_components
+
+# Usage example:
+top_components = list_top_principal_components(loading_scores)
+
+
+
+def variables_greatest_effect(loading_scores, top_components, selected_columns):
+    """
+    Determine which variables have the greatest effect on the principal components.
+    
+    Parameters:
+        loading_scores (array-like): The loading scores obtained from PCA.
+        top_components (list): A list of tuples containing the index and loading score of the top principal components.
+        selected_columns (list): The list of selected column names.
+    
+    Returns:
+        top_variables (dict): A dictionary mapping the top variables to their cumulative loading scores across the top components.
+    """
+    top_variables = {}
+    
+    # Initialize an array to store the cumulative loading scores for each variable
+    cumulative_loading_scores = np.zeros(len(selected_columns))
+    
+    # Iterate over the top principal components
+    for index, _ in top_components:
+        # Get the loading scores for the current principal component
+        component_loading_scores = loading_scores[index]
+        
+        # Update the cumulative loading scores for each variable
+        cumulative_loading_scores += np.abs(component_loading_scores)
+    
+    # Create a dictionary mapping variables to their cumulative loading scores
+    for col, score in zip(selected_columns, cumulative_loading_scores):
+        top_variables[col] = score
+    
+    # Sort the variables based on their cumulative loading scores
+    top_variables = {k: v for k, v in sorted(top_variables.items(), key=lambda item: item[1], reverse=True)}
+    
+    return top_variables
+
+
+#top_variables = variables_greatest_effect(loading_scores, top_components, selectedColumns)
+
+
+
+# Define the classes you want to compare
+class_column = 'overall_survival'
+classes = data[class_column].unique()
+
+# Calculate the mean values of each principal component for each class
+mean_values = {}
+for pc_index in range(len(pca.components_)):
+    pc_scores = score[:, pc_index]
+    mean_values[pc_index] = {}
+    for class_label in classes:
+        class_mask = (data[class_column] == class_label)
+        mean_values[pc_index][class_label] = np.mean(pc_scores[class_mask])
+
+# Calculate the separation measure for each principal component
+separation_measures = {}
+for pc_index, class_means in mean_values.items():
+    separation_measures[pc_index] = abs(class_means[classes[0]] - class_means[classes[1]])
+
+# Rank the principal components based on their separation measure
+sorted_pcs = sorted(separation_measures.items(), key=lambda x: x[1], reverse=True)
+
+# Plot the top-ranked principal components
+plt.figure(figsize=(12, 8))
+for i, (pc_index, _) in enumerate(sorted_pcs[:3], 1):  # Plot the top 3 principal components
+    plt.subplot(2, 2, i)
+    pc_scores = score[:, pc_index]
+    plt.scatter(pc_scores, np.zeros_like(pc_scores), c=color_column, cmap='coolwarm')
+    plt.xlabel(f'PC {pc_index + 1}')
+    plt.ylabel('Score')
+    plt.title(f'Principal Component {pc_index + 1} - ' + name)
+plt.tight_layout()
+#plt.show()
+
+from mpl_toolkits.mplot3d import Axes3D
+
+# Plot the top-ranked principal components in 3D
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+
+# Plot the top 3 principal components
+pc1_index, _ = sorted_pcs[0]
+pc2_index, _ = sorted_pcs[1]
+pc3_index, _ = sorted_pcs[2]
+
+pc1_scores = score[:, pc1_index]
+pc2_scores = score[:, pc2_index]
+pc3_scores = score[:, pc3_index]
+
+ax.scatter(pc1_scores, pc2_scores, pc3_scores, c=color_column, cmap='coolwarm')
+
+# Set labels and title
+ax.set_xlabel('PC1')
+ax.set_ylabel('PC2')
+ax.set_zlabel('PC3')
+ax.set_title('Top 3 Principal Components for ' + name)
+
+# Add a colorbar to show the meaning of colors
+plt.legend(handles=[plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=10, label='Deceased'),
+                    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=10, label='Survived')])
+
+#cbar = plt.colorbar(ax.scatter([], [], [], c=[], cmap='coolwarm'), ax=ax)
+#cbar.set_label('Overall Survival')
+
+plt.show()
+
+# Get the top variables affecting each principal component
+top_variables_pc1 = sorted(list(zip(selectedColumns, loading_scores[pc1_index])), key=lambda x: abs(x[1]), reverse=True)[:20]
+top_variables_pc2 = sorted(list(zip(selectedColumns, loading_scores[pc2_index])), key=lambda x: abs(x[1]), reverse=True)[:20]
+top_variables_pc3 = sorted(list(zip(selectedColumns, loading_scores[pc3_index])), key=lambda x: abs(x[1]), reverse=True)[:20]
+
+# Print the top variables affecting each principal component
+print('Data for ' + name)
+print("\nTop Variables Affecting PC1:")
+counter = 0
+for variable, loading_score in top_variables_pc1:
+    if counter < 20:
+        print(f"{variable}: {loading_score}")
+        counter +=1
+    else:
+        break
+
+counter = 0
+print("\nTop Variables Affecting PC2:")
+for variable, loading_score in top_variables_pc2:
+    if counter < 20:
+        print(f"{variable}: {loading_score}")
+        counter +=1
+    else:
+        break
+
+counter = 0
+print("\nTop Variables Affecting PC3:")
+for variable, loading_score in top_variables_pc3:
+    if counter < 20:
+        print(f"{variable}: {loading_score}")
+        counter +=1
+    else:
+        break
+    
+# Get the explained variance ratios for the top 3 principal components
+pc1_variance = pca.explained_variance_ratio_[pc1_index]
+pc2_variance = pca.explained_variance_ratio_[pc2_index]
+pc3_variance = pca.explained_variance_ratio_[pc3_index]
+
+# Calculate variance of overall survival directly from the data
+overall_survival_variance = data['overall_survival'].var()
+
+# Calculate variance contributions of overall survival for each PC
+overall_survival_variance_contributions = [pc1_variance * overall_survival_variance,
+                                           pc2_variance * overall_survival_variance,
+                                           pc3_variance * overall_survival_variance]
+
+print("\nVariance contributions of overall survival for each PC:", overall_survival_variance_contributions)
